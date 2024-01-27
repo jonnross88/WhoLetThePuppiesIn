@@ -1,3 +1,10 @@
+"""
+This module contains utility classes and functions used across various notebooks in the project.
+
+It includes helper functions and classes that complement the notebooks for the Data Science Method.
+
+This module is part of a larger data analysis project and is used in various Jupyter notebooks.
+"""
 import re
 from typing import Optional, Callable
 from pathlib import Path
@@ -25,6 +32,38 @@ from joblib import Memory
 import unicodedata
 
 from translate_app import translate_list_to_dict
+
+
+class InfoMixin:
+    """
+    Mixin to add a method for limited column info display to a DataFrame.
+    """
+
+    def limit_info(self, max_cols=8):
+        """
+        Display info for up to `max_cols` randomly chosen columns of the DataFrame.
+
+        Parameters
+        ----------
+        max_cols : int, optional
+            Maximum number of columns to display info for. Default is 8.
+        """
+        if len(self.columns) > max_cols:
+            print(f"\nTotal number of columns: {len(self.columns)}")
+            self.info(max_cols=max_cols)
+            print(f"\nOnly showing info for {max_cols} columns, chosen at random.")
+            random_columns = np.random.choice(
+                self.columns, size=max_cols, replace=False
+            )
+            self[random_columns].info()
+        else:
+            self.info()
+
+
+class InfoDataFrame(InfoMixin, pd.DataFrame):
+    """
+    DataFrame subclass with additional `limit_info` method.
+    """
 
 
 # Set the cache directory
@@ -141,15 +180,15 @@ def rename_keys(d, prefix="zurich_gdf_"):
 def get_zurich_description(zurich_description_url: str) -> pd.DataFrame:
     """Function to get the description of the districts of Zurich from the website."""
     # Define regex patterns
-    pattern = re.compile(r"s-[1-9]|s-1[0-2]")
-    regex_pattern = re.compile(r"([\d]+)")
+    pattern_1 = re.compile(r"s-[1-9]|s-1[0-2]")
+    pattern_2 = re.compile(r"([\d]+)")
     # get the html content of the website
     with urlopen(zurich_description_url) as u:
         zurich_html_content = u.read()
 
     zurich_soup = BeautifulSoup(zurich_html_content, "lxml")
 
-    elements = zurich_soup.find_all(id=pattern)
+    elements = zurich_soup.find_all(id=pattern_1)
 
     # create a dataframe with the information of the districts
     districts = {
@@ -171,19 +210,15 @@ def get_zurich_description(zurich_description_url: str) -> pd.DataFrame:
 
     # create a new column with the district number
     districts_df["district"] = (
-        districts_df["district_number"]
-        .str.extract(
-            regex_pattern,
-        )
-        .astype(int)
+        districts_df["district_number"].str.extract(pattern_2).astype(int)
     )
     districts_df.drop("district_number", axis=1, inplace=True)
 
-    # districts_df["district_name"] = districts_df["district_name"].str.strip()
-    # districts_df["desc"] = districts_df["desc"].str.strip()
-    # strip the whitespace from the columns
-    districts_df = districts_df.apply(
+    districts_df["link"] = districts_df["district_number"].apply(
         lambda x: x.str.strip() if x.dtype == "object" else x
+    )
+    districts_df["link"] = districts_df["district_number"].apply(
+        lambda x: f"{zurich_description_url}#s-{x}"
     )
 
     return districts_df
