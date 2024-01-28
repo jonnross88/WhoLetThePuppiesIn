@@ -26,7 +26,7 @@ panel
 pmdarima
 pysal
 scikit-learn
-scipy
+scipy>=1.6.1,<=1.11.4
 seaborn
 selenium
 shapely

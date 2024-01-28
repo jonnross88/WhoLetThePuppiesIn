@@ -5,6 +5,8 @@ It includes helper functions and classes that complement the notebooks for the D
 
 This module is part of a larger data analysis project and is used in various Jupyter notebooks.
 """
+import concurrent.futures as cf
+import itertools as it
 import re
 from typing import Optional, Callable
 from pathlib import Path
@@ -28,8 +30,12 @@ import panel.widgets as pnw
 import seaborn as sns
 from wordcloud import WordCloud
 from PIL import ImageDraw, Image
-from joblib import Memory
+from joblib import Memory, Parallel, delayed
+
 import unicodedata
+from pmdarima import auto_arima
+from tqdm import tqdm
+import umap
 
 from translate_app import translate_list_to_dict
 
@@ -114,7 +120,7 @@ quantile_income_button = pnw.RadioButtonGroup(
 )
 
 
-def query_for_time_period(df, start_year=2015, end_year=2021):
+def query_for_time_period(df, start_year=2015, end_year=2023):
     """Returns a DataFrame with the data for the specified time period, querying the 'roster' column."""
     return df.query(f"{start_year} <= roster < {end_year}")
 
@@ -345,7 +351,8 @@ def get_line_plots(data, x, group_by, highlight_list=None, **kwargs):
 @pn.cache(max_items=10, policy="LRU")
 def get_dog_age_butterfly_plot(roster):
     """
-    Decorated with @pn.depends, this function generates a butterfly plot of male and female dog age distributions for a given roster year.
+    Decorated with @pn.depends, this function generates a butterfly plot of male
+    and female dog age distributions for a given roster year.
 
     Parameters:
     roster (int): The roster year to filter the dog data by.
@@ -559,3 +566,55 @@ def get_income_polygon(roster, quantile):
         title=f"{quantile_title} in a thousand fracs | {roster}",
         aspect="equal",
     )
+
+
+def train_and_predict_arima(data, end_year, n_periods=1):
+    """Takes in a Series and returns a forecast using auto_arima."""
+    end_year = pd.to_datetime(end_year, format="%Y")
+    train = data.loc[data.index < end_year]
+    model = auto_arima(
+        train,
+        seasonal=False,
+        trace=False,
+        error_action="ignore",
+        suppress_warnings=True,
+    )
+    return pd.DataFrame(model.predict(n_periods=n_periods), columns=[data.name])
+
+
+def forecast_arima(data, end_year, n_periods=1, model_desc="Model"):
+    """Takes in a DataFrame and returns a DataFrame with n forecast for each column."""
+    forecasts = []
+    for col in tqdm(data.columns, desc=f"Training {model_desc} {end_year}"):
+        forecasts.append(
+            train_and_predict_arima(data[col], end_year, n_periods=n_periods)
+        )
+
+    return pd.concat(forecasts, axis=1)
+
+
+def _embeddings(args):
+    """Generate UMAP embeddings for a given n_neighbors and min_dist value."""
+    scaled_data_df, neighbor, min_distance = args
+    reducer = umap.UMAP(n_neighbors=neighbor, min_dist=min_distance)
+    embeddings = reducer.fit_transform(scaled_data_df)
+    return (neighbor, min_distance), embeddings
+
+
+def compute_embeddings(scaled_data_df, n_neighbors_values, min_dist_values):
+    """
+    Compute UMAP embeddings in parallel for various n_neighbors and min_dist values.
+    """
+    with cf.ProcessPoolExecutor() as executor:
+        # Compute embeddings in parallel
+        embeddings_dict = dict(
+            executor.map(
+                _embeddings,
+                [
+                    (scaled_data_df, n, d)
+                    for n, d in it.product(n_neighbors_values, min_dist_values)
+                ],
+            )
+        )
+
+    return embeddings_dict
