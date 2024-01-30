@@ -31,13 +31,23 @@ import seaborn as sns
 from wordcloud import WordCloud
 from PIL import ImageDraw, Image
 from joblib import Memory, Parallel, delayed
-
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
+from sklearn.cluster import KMeans
+import umap
+from sklearn import metrics
 import unicodedata
 from pmdarima import auto_arima
 from tqdm import tqdm
 import umap
 
 from translate_app import translate_list_to_dict
+
+
+pn.extension()
+hv.extension("bokeh")
+gv.extension("bokeh")
+hvplot.extension("bokeh")
 
 
 class InfoMixin:
@@ -120,9 +130,10 @@ quantile_income_button = pnw.RadioButtonGroup(
 )
 
 
-def query_for_time_period(df, start_year=2015, end_year=2023):
-    """Returns a DataFrame with the data for the specified time period, querying the 'roster' column."""
-    return df.query(f"{start_year} <= roster < {end_year}")
+def query_for_time_period(df, start_year=2015, end_year=2023, year_col="roster"):
+    """Returns a DataFrame with the data for the specified time period,
+    querying the 'roster' column (start <= x < end)."""
+    return df.query(f"{start_year} <= {year_col} < {end_year}")
 
 
 def remove_accents(input_str):
@@ -595,13 +606,13 @@ def forecast_arima(data, end_year, n_periods=1, model_desc="Model"):
 
 def _embeddings(args):
     """Generate UMAP embeddings for a given n_neighbors and min_dist value."""
-    scaled_data_df, neighbor, min_distance = args
+    df, neighbor, min_distance = args
     reducer = umap.UMAP(n_neighbors=neighbor, min_dist=min_distance)
-    embeddings = reducer.fit_transform(scaled_data_df)
+    embeddings = reducer.fit_transform(df)
     return (neighbor, min_distance), embeddings
 
 
-def compute_embeddings(scaled_data_df, n_neighbors_values, min_dist_values):
+def compute_embeddings(df, n_neighbors_values, min_dist_values):
     """
     Compute UMAP embeddings in parallel for various n_neighbors and min_dist values.
     """
@@ -611,10 +622,99 @@ def compute_embeddings(scaled_data_df, n_neighbors_values, min_dist_values):
             executor.map(
                 _embeddings,
                 [
-                    (scaled_data_df, n, d)
+                    (df, n, d)
                     for n, d in it.product(n_neighbors_values, min_dist_values)
                 ],
             )
         )
 
     return embeddings_dict
+
+
+def compute_kmeans_labels(data, n_clusters):
+    """Compute K-means cluster labels for the given data."""
+    kmeans = KMeans(n_clusters=n_clusters, random_state=628).fit(data)
+    return kmeans.labels_
+
+
+def create_clustered_data_df(data, cluster_labels, name_2_columns=("x", "y")):
+    """Create a DataFrame from the data and cluster labels."""
+    # Convert data to a DataFrame if it's not already
+    if not isinstance(data, pd.DataFrame):
+        data_df = pd.DataFrame(data, columns=[i for i in name_2_columns])
+    else:
+        data_df = data.copy()
+
+    # Add the cluster labels as a new column
+    data_df["cluster"] = cluster_labels
+    return data_df
+
+
+def add_columns(data_df, other_df, columns):
+    """Add specified columns from another DataFrame to the given DataFrame."""
+    data = data_df.copy()
+    for column in columns:
+        data[column] = other_df[column].copy()
+    return data
+
+
+def create_scatterplot_with_origin_cross(data, x="x", y="y", title="Scatter Title"):
+    """Create a scatter plot from the embeddings DataFrame."""
+    plot = data.hvplot.scatter(
+        x=x,
+        y=y,
+        by="cluster",
+        hover_cols=["all"],
+        size=10,
+        width=500,
+        height=300,
+        legend=False,
+        xaxis="bare",
+        yaxis="bare",
+        title=title,
+    ).opts(tools=["box_zoom", "tap"], active_tools=["box_zoom"])
+    v_line = hv.VLine(0).opts(color="gray", line_dash="dotted")
+    h_line = hv.HLine(0).opts(color="gray", line_dash="dotted")
+    return plot * v_line * h_line
+
+
+def calculate_clusters_scores(data_dict, n_clusters_values=None):
+    """Calculate K-means clustering scores for all embeddings in the dictionary and return a DataFrame."""
+    # Create a list to store the dataframes
+    dfs = []
+    if n_clusters_values is None:
+        # Define the range of cluster numbers
+        n_clusters_values = list(range(2, 20))
+
+    for embedding_key, embeddings in data_dict.items():
+        for n_clusters in n_clusters_values:
+            kmeans = KMeans(n_clusters=n_clusters, random_state=628).fit(embeddings)
+            cluster_labels = kmeans.labels_
+
+            silhouette = round(metrics.silhouette_score(embeddings, cluster_labels), 3)
+            calinski_harabasz = round(
+                metrics.calinski_harabasz_score(embeddings, cluster_labels),
+            )
+            davies_bouldin = round(
+                metrics.davies_bouldin_score(embeddings, cluster_labels), 3
+            )
+
+            # Create a DataFrame
+            df = pd.DataFrame()
+            df = pd.DataFrame(
+                {
+                    "embedding_key": [embedding_key],
+                    "n_clusters": [n_clusters],
+                    "silhouette": [silhouette],
+                    "calinski_harabasz": [calinski_harabasz],
+                    "davies_bouldin": [davies_bouldin],
+                }
+            )
+
+            # Append the dataframe to the list
+            dfs.append(df)
+
+    # Concatenate all dataframes in the list into a single dataframe
+    result_df = pd.concat(dfs, ignore_index=True)
+
+    return result_df
