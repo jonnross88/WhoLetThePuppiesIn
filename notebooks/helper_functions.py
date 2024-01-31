@@ -133,7 +133,12 @@ quantile_income_button = pnw.RadioButtonGroup(
 def query_for_time_period(df, start_year=2015, end_year=2023, year_col="roster"):
     """Returns a DataFrame with the data for the specified time period,
     querying the 'roster' column (start <= x < end)."""
-    return df.query(f"{start_year} <= {year_col} < {end_year}")
+    try:
+        return df.query(f"{start_year} <= {year_col} < {end_year}")
+    except NameError as e:
+        print(f"Error: {e}")
+
+        return df.query(f"{start_year} <= roster < {end_year}")
 
 
 def remove_accents(input_str):
