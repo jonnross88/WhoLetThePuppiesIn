@@ -683,43 +683,46 @@ def create_scatterplot_with_origin_cross(data, x="x", y="y", title="Scatter Titl
     return plot * v_line * h_line
 
 
-def calculate_clusters_scores(data_dict, n_clusters_values=None):
+def calculate_clusters_scores(embeddings_dict, cluster_range=None):
     """Calculate K-means clustering scores for all embeddings in the dictionary and return a DataFrame."""
     # Create a list to store the dataframes
-    dfs = []
-    if n_clusters_values is None:
+    score_dataframes = []
+    if cluster_range is None:
         # Define the range of cluster numbers
-        n_clusters_values = list(range(2, 20))
+        cluster_range = list(range(2, 20))
 
-    for embedding_key, embeddings in data_dict.items():
-        for n_clusters in n_clusters_values:
-            kmeans = KMeans(n_clusters=n_clusters, random_state=628).fit(embeddings)
-            cluster_labels = kmeans.labels_
+    for embedding_key, embeddings in embeddings_dict.items():
+        for num_clusters in cluster_range:
+            kmeans_model = KMeans(n_clusters=num_clusters, random_state=628).fit(
+                embeddings
+            )
+            cluster_labels = kmeans_model.labels_
 
-            silhouette = round(metrics.silhouette_score(embeddings, cluster_labels), 3)
-            calinski_harabasz = round(
+            silhouette_score = round(
+                metrics.silhouette_score(embeddings, cluster_labels), 3
+            )
+            calinski_harabasz_score = round(
                 metrics.calinski_harabasz_score(embeddings, cluster_labels),
             )
-            davies_bouldin = round(
+            davies_bouldin_score = round(
                 metrics.davies_bouldin_score(embeddings, cluster_labels), 3
             )
 
             # Create a DataFrame
-            df = pd.DataFrame()
-            df = pd.DataFrame(
+            scores_df = pd.DataFrame(
                 {
                     "embedding_key": [embedding_key],
-                    "n_clusters": [n_clusters],
-                    "silhouette": [silhouette],
-                    "calinski_harabasz": [calinski_harabasz],
-                    "davies_bouldin": [davies_bouldin],
+                    "num_clusters": [num_clusters],
+                    "silhouette_score": [silhouette_score],
+                    "calinski_harabasz_score": [calinski_harabasz_score],
+                    "davies_bouldin_score": [davies_bouldin_score],
                 }
             )
 
             # Append the dataframe to the list
-            dfs.append(df)
+            score_dataframes.append(scores_df)
 
     # Concatenate all dataframes in the list into a single dataframe
-    result_df = pd.concat(dfs, ignore_index=True)
+    result_df = pd.concat(score_dataframes, ignore_index=True)
 
     return result_df
