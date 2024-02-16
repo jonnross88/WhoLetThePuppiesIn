@@ -8,37 +8,38 @@ This module is part of a larger data analysis project and is used in various Jup
 import concurrent.futures as cf
 import itertools as it
 import re
-from typing import Optional, Callable
+import unicodedata
 from pathlib import Path
+from typing import Optional, Callable
 from urllib.request import urlopen
-from fiona.io import ZipMemoryFile
+
+from PIL import ImageDraw, Image
 from bs4 import BeautifulSoup
-import numpy as np
-import pandas as pd
+from bokeh.models import NumeralTickFormatter
+from fiona.io import ZipMemoryFile
+from joblib import Memory, Parallel, delayed
+from pmdarima import auto_arima
+from sklearn.cluster import KMeans
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
+from sklearn import metrics
+from thefuzz import fuzz
+from tqdm import tqdm
+from wordcloud import WordCloud
+
+import cartopy.crs as ccrs
+import colorcet as cc
 import geopandas as gpd
 import geoviews as gv
-from bokeh.models import NumeralTickFormatter
-from thefuzz import fuzz
-import hvplot
-import hvplot.pandas
 import holoviews as hv
 from holoviews import streams
-import colorcet as cc
-import cartopy.crs as ccrs
+import hvplot
+import hvplot.pandas
+import numpy as np
+import pandas as pd
 import panel as pn
 import panel.widgets as pnw
 import seaborn as sns
-from wordcloud import WordCloud
-from PIL import ImageDraw, Image
-from joblib import Memory, Parallel, delayed
-from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler
-from sklearn.cluster import KMeans
-import umap
-from sklearn import metrics
-import unicodedata
-from pmdarima import auto_arima
-from tqdm import tqdm
 import umap
 
 from translate_app import translate_list_to_dict
@@ -87,8 +88,8 @@ class InfoDataFrame(InfoMixin, pd.DataFrame):
 
 
 # Set the cache directory
-cache_dir = "./zurich_cache_directory"
-memory = Memory(cache_dir, verbose=0)
+CACHE_DIR = "./zurich_cache_directory"
+memory = Memory(CACHE_DIR, verbose=0)
 
 # Opts for polygon elements
 poly_opts = dict(
@@ -310,7 +311,7 @@ def find_breed_match(
     # Return the best match
     return best_match
 
-
+@memory.cache
 def apply_fuzzy_matching_to_breed_column(
     dataframe: pd.DataFrame,
     breed_column: str,
@@ -613,7 +614,7 @@ def train_and_predict_arima(data, end_year, n_periods=1):
     return pd.DataFrame(model.predict(n_periods=n_periods),
                         columns=[data.name])
 
-
+@memory.cache
 def forecast_arima(data, end_year, n_periods=1, model_desc="Model"):
     """Takes in a DataFrame and returns a DataFrame with n forecast for each column."""
     forecasts = []
