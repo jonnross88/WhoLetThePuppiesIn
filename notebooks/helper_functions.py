@@ -8,41 +8,41 @@ This module is part of a larger data analysis project and is used in various Jup
 import concurrent.futures as cf
 import itertools as it
 import re
-from typing import Optional, Callable
+import unicodedata
 from pathlib import Path
+from typing import Optional, Callable
 from urllib.request import urlopen
-from fiona.io import ZipMemoryFile
+
+from PIL import ImageDraw, Image
 from bs4 import BeautifulSoup
-import numpy as np
-import pandas as pd
+from bokeh.models import NumeralTickFormatter
+from fiona.io import ZipMemoryFile
+from joblib import Memory, Parallel, delayed
+from pmdarima import auto_arima
+from sklearn.cluster import KMeans
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
+from sklearn import metrics
+from thefuzz import fuzz
+from tqdm import tqdm
+from wordcloud import WordCloud
+
+import cartopy.crs as ccrs
+import colorcet as cc
 import geopandas as gpd
 import geoviews as gv
-from bokeh.models import NumeralTickFormatter
-from thefuzz import fuzz
-import hvplot
-import hvplot.pandas
 import holoviews as hv
 from holoviews import streams
-import colorcet as cc
-import cartopy.crs as ccrs
+import hvplot
+import hvplot.pandas
+import numpy as np
+import pandas as pd
 import panel as pn
 import panel.widgets as pnw
 import seaborn as sns
-from wordcloud import WordCloud
-from PIL import ImageDraw, Image
-from joblib import Memory, Parallel, delayed
-from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler
-from sklearn.cluster import KMeans
-import umap
-from sklearn import metrics
-import unicodedata
-from pmdarima import auto_arima
-from tqdm import tqdm
 import umap
 
 from translate_app import translate_list_to_dict
-
 
 pn.extension()
 hv.extension("bokeh")
@@ -55,7 +55,7 @@ class InfoMixin:
     Mixin to add a method for limited column info display to a DataFrame.
     """
 
-    def limit_info(self, max_cols=8):
+    def limit_info(self, max_cols: int = 8) -> None:
         """
         Display info for up to `max_cols` randomly chosen columns of the DataFrame.
 
@@ -64,13 +64,18 @@ class InfoMixin:
         max_cols : int, optional
             Maximum number of columns to display info for. Default is 8.
         """
+        assert isinstance(self,
+                          pd.DataFrame), "This mixin is for DataFrames only."
+
         if len(self.columns) > max_cols:
             print(f"\nTotal number of columns: {len(self.columns)}")
             self.info(max_cols=max_cols)
-            print(f"\nOnly showing info for {max_cols} columns, chosen at random.")
-            random_columns = np.random.choice(
-                self.columns, size=max_cols, replace=False
+            print(
+                f"\nOnly showing info for {max_cols} columns, chosen at random."
             )
+            random_columns = np.random.choice(self.columns,
+                                              size=max_cols,
+                                              replace=False)
             self[random_columns].info()
         else:
             self.info()
@@ -83,8 +88,8 @@ class InfoDataFrame(InfoMixin, pd.DataFrame):
 
 
 # Set the cache directory
-cache_dir = "./zurich_cache_directory"
-memory = Memory(cache_dir, verbose=0)
+CACHE_DIR = "./zurich_cache_directory"
+memory = Memory(CACHE_DIR, verbose=0)
 
 # Opts for polygon elements
 poly_opts = dict(
@@ -96,12 +101,10 @@ poly_opts = dict(
     backend_opts={"toolbar.autohide": True},
 )
 
-
 NEIGHBORHOOD_GDF_PATH = "../data/zurich_neighborhoods.geojson"
 PROCESSED_DOG_DATA_PATH = "../data/processed_dog_data.csv"
 PROCESSED_POP_DATA_PATH = "../data/processed_pop_data.csv"
 PROCESSED_INCOME_DATA_PATH = "../data/processed_income_data.csv"
-
 
 # Create a player widget
 yearly_player = pnw.Player(
@@ -130,7 +133,31 @@ quantile_income_button = pnw.RadioButtonGroup(
 )
 
 
-def query_for_time_period(df, start_year=2015, end_year=2023, year_col="roster"):
+def save_to_data(df: pd.DataFrame, filename: str, data_dir: str = '../data'):
+    """Saves the dataframe to the data folder as a csv file. 
+    If the folder does not exist, it will be created."""
+    # create the full path
+    df_path = Path(data_dir) / filename
+    # check if the data folder exists
+    if not df_path.parent.exists():
+        df_path.parent.mkdir(parents=True)
+    # save the dataframe as file according to the extension
+    ext = df_path.suffix.lstrip('.')
+    match ext:
+        case 'csv':
+            df.to_csv(df_path, index=False)
+        case 'json':
+            df.to_json(df_path, orient='records')
+        case 'geojson':
+            df.to_file(df_path)  # type: ignore
+        case _:
+            raise ValueError(f"Extension {ext} not supported.")
+
+
+def query_for_time_period(df,
+                          start_year=2015,
+                          end_year=2023,
+                          year_col="roster"):
     """Returns a DataFrame with the data for the specified time period,
     querying the 'roster' column (start <= x < end)."""
     try:
@@ -143,9 +170,9 @@ def query_for_time_period(df, start_year=2015, end_year=2023, year_col="roster")
 
 def remove_accents(input_str):
     """Function to remove accents from a string"""
-    nfkd_form = (
-        unicodedata.normalize("NFKD", input_str).encode("ASCII", "ignore").decode()
-    )
+    nfkd_form = (unicodedata.normalize("NFKD",
+                                       input_str).encode("ASCII",
+                                                         "ignore").decode())
     return nfkd_form
 
 
@@ -186,8 +213,7 @@ def get_gdf_from_zip_url(zip_url: str) -> dict[str, gpd.GeoDataFrame]:
             for file in geofiles:
                 with z.open("data/" + file) as g:
                     gpd_dict[Path(file).stem] = gpd.GeoDataFrame.from_features(
-                        g, crs=g.crs
-                    )
+                        g, crs=g.crs)
     except Exception as e:
         raise Exception(f"Error reading geojson data: {e}")
 
@@ -203,7 +229,7 @@ def get_zurich_description(zurich_description_url: str) -> pd.DataFrame:
     """Function to get the description of the districts of Zurich from the website."""
     # Define regex patterns
     pattern_1 = re.compile(r"s-[1-9]|s-1[0-2]")
-    pattern_2 = re.compile(r"([\d]+)")
+    pattern_2 = r"([\d]+)"
     # get the html content of the website
     with urlopen(zurich_description_url) as u:
         zurich_html_content = u.read()
@@ -214,34 +240,33 @@ def get_zurich_description(zurich_description_url: str) -> pd.DataFrame:
 
     # create a dataframe with the information of the districts
     districts = {
-        element.find("h2").text: element.find("p").text for element in elements
+        element.find("h2").text: element.find("p").text
+        for element in elements
     }
-    districts_df = pd.DataFrame.from_dict(districts, orient="index", columns=["desc"])
+    districts_df = pd.DataFrame.from_dict(districts,
+                                          orient="index",
+                                          columns=["desc"])
 
     # make the index into a column and split it into district number and district name
     districts_df = districts_df.reset_index()
-    districts_df = (
-        districts_df["index"]
-        .str.split("–", expand=True)
-        .rename({0: "district_number", 1: "district_name"}, axis=1)
-        .join(districts_df)
-        .drop("index", axis=1)
-    )
+    districts_df = (districts_df["index"].str.split("–", expand=True).rename(
+        {
+            0: "district_number",
+            1: "district_name"
+        }, axis=1).join(districts_df).drop("index", axis=1))
     # strip the whitespace from the columns
-    districts_df["district_number"] = districts_df["district_number"].str.strip()
+    districts_df["district_number"] = districts_df[
+        "district_number"].str.strip()
 
     # create a new column with the district number
     districts_df["district"] = (
-        districts_df["district_number"].str.extract(pattern_2).astype(int)
-    )
+        districts_df["district_number"].str.extract(pattern_2).astype(int))
     districts_df.drop("district_number", axis=1, inplace=True)
 
     districts_df["link"] = districts_df["district_number"].apply(
-        lambda x: x.str.strip() if x.dtype == "object" else x
-    )
+        lambda x: x.str.strip() if x.dtype == "object" else x)
     districts_df["link"] = districts_df["district_number"].apply(
-        lambda x: f"{zurich_description_url}#s-{x}"
-    )
+        lambda x: f"{zurich_description_url}#s-{x}")
 
     return districts_df
 
@@ -270,10 +295,8 @@ def find_breed_match(
         current_score = max(
             max(
                 scoring_function(input_breed, alt_name)
-                for scoring_function in scoring_functions
-            )
-            for alt_name in alternative_names
-        )
+                for scoring_function in scoring_functions)
+            for alt_name in alternative_names)
         # If the current score is greater than the maximum score, update the
         # maximum score and best match
         if current_score > max_score:
@@ -288,7 +311,7 @@ def find_breed_match(
     # Return the best match
     return best_match
 
-
+@memory.cache
 def apply_fuzzy_matching_to_breed_column(
     dataframe: pd.DataFrame,
     breed_column: str,
@@ -298,11 +321,8 @@ def apply_fuzzy_matching_to_breed_column(
 ) -> pd.Series:
     """Apply fuzzy matching to the breed column in the dataframe."""
 
-    return dataframe[breed_column].apply(
-        lambda breed: find_breed_match(
-            breed, fci_df, scoring_functions, scoring_threshold=scoring_threshold
-        )
-    )
+    return dataframe[breed_column].apply(lambda breed: find_breed_match(
+        breed, fci_df, scoring_functions, scoring_threshold=scoring_threshold))
 
 
 def get_line_plots(data, x, group_by, highlight_list=None, **kwargs):
@@ -320,14 +340,14 @@ def get_line_plots(data, x, group_by, highlight_list=None, **kwargs):
     ]
 
     plots = []
-    colors = kwargs.get("colors", ["gray" if not highlight_list else "lightgray"])
+    colors = kwargs.get("colors",
+                        ["gray" if not highlight_list else "lightgray"])
     highlight_colors = kwargs.get("highlight_colors", default_highlight_colors)
 
     # Extend the highlight_colors list if there are more highlighted groups than colors
     if len(highlight_list) > len(highlight_colors):
         highlight_colors = highlight_colors * (
-            len(highlight_list) // len(highlight_colors) + 1
-        )
+            len(highlight_list) // len(highlight_colors) + 1)
 
     for i, group_value in enumerate(data[group_by].unique()):
         # Filter the DataFrame for the specified value
@@ -336,11 +356,9 @@ def get_line_plots(data, x, group_by, highlight_list=None, **kwargs):
         filtered_data = filtered_data.sort_values([group_by, x])
 
         # Determine the color for the plot
-        plot_color = (
-            highlight_colors[highlight_list.index(group_value)]
-            if group_value in highlight_list
-            else colors[i % len(colors)]
-        )
+        plot_color = (highlight_colors[highlight_list.index(group_value)] if
+                      group_value in highlight_list else colors[i %
+                                                                len(colors)])
 
         # Create a line plot for the specified value
         line_plot = filtered_data.hvplot(
@@ -351,7 +369,9 @@ def get_line_plots(data, x, group_by, highlight_list=None, **kwargs):
         )
 
         # Create a scatter plot for the specified value
-        scatter_plot = filtered_data.hvplot.scatter(color=plot_color, x=x, by=group_by)
+        scatter_plot = filtered_data.hvplot.scatter(color=plot_color,
+                                                    x=x,
+                                                    by=group_by)
 
         # Combine the line plot and scatter plot
         plot = line_plot * scatter_plot
@@ -393,11 +413,8 @@ def get_dog_age_butterfly_plot(roster):
     roster_dog_data = filtered_dog_data.query(f"roster=={roster}")
     # Filter for the is_male_dog
     male_roster_dog_data = roster_dog_data.loc[roster_dog_data["is_male_dog"]]
-    male_roster_dog_data = (
-        male_roster_dog_data.groupby(["dog_age"])
-        .size()
-        .reset_index(name="age_frequency")
-    )
+    male_roster_dog_data = (male_roster_dog_data.groupby(
+        ["dog_age"]).size().reset_index(name="age_frequency"))
     male_roster_dog_data = male_roster_dog_data.set_index("dog_age")
     total_male = male_roster_dog_data["age_frequency"].sum()
     male_plot = male_roster_dog_data.hvplot.bar(
@@ -408,25 +425,20 @@ def get_dog_age_butterfly_plot(roster):
     ).opts(active_tools=["box_zoom"])
 
     female_roster_dog_data = roster_dog_data[~roster_dog_data["is_male_dog"]]
-    female_roster_dog_data = (
-        female_roster_dog_data.groupby(["dog_age"])
-        .size()
-        .reset_index(name="age_frequency")
-    )
+    female_roster_dog_data = (female_roster_dog_data.groupby(
+        ["dog_age"]).size().reset_index(name="age_frequency"))
     female_roster_dog_data = female_roster_dog_data.set_index("dog_age")
     total_female = female_roster_dog_data["age_frequency"].sum()
     female_roster_dog_data["age_frequency"] = (
-        -1 * female_roster_dog_data["age_frequency"]
-    )
+        -1 * female_roster_dog_data["age_frequency"])
     female_plot = female_roster_dog_data.hvplot.bar(
         **bar_opts,
         ylim=(-620, 0),
-        title=f"Female Dog Age Distribution || {roster} || {total_female} Canines",
+        title=
+        f"Female Dog Age Distribution || {roster} || {total_female} Canines",
         color="pink",
     ).opts(active_tools=["box_zoom"])
-    return (female_plot + male_plot).opts(
-        shared_axes=False,
-    )
+    return (female_plot + male_plot).opts(shared_axes=False, )
 
 
 @pn.depends(roster_button.param.value)
@@ -438,22 +450,22 @@ def get_neighborhood_dog_density(roster):
     df = df.query(f"roster=={roster}")
 
     # Aggregate dog count by neighborhood
-    df = (df.groupby(["neighborhood"]).size().reset_index(name="total_dogs")).set_index(
+    df = (df.groupby([
         "neighborhood"
-    )
+    ]).size().reset_index(name="total_dogs")).set_index("neighborhood")
 
     # Load neighborhood geospatial data
     map_gdf = gpd.read_file(NEIGHBORHOOD_GDF_PATH).set_index("neighborhood")
 
     # Merge dog count and geospatial data
-    roster_dog_data_gdf = map_gdf.merge(
-        df, left_index=True, right_index=True, how="left"
-    )
+    roster_dog_data_gdf = map_gdf.merge(df,
+                                        left_index=True,
+                                        right_index=True,
+                                        how="left")
 
     # Calculate dog density
-    roster_dog_data_gdf["dog_density"] = (
-        roster_dog_data_gdf["total_dogs"] / roster_dog_data_gdf["area_km2"]
-    )
+    roster_dog_data_gdf["dog_density"] = (roster_dog_data_gdf["total_dogs"] /
+                                          roster_dog_data_gdf["area_km2"])
 
     # Create and return a choropleth map of dog density
     return gv.Polygons(roster_dog_data_gdf).opts(
@@ -498,7 +510,7 @@ def get_neighborhood_dogs_total(roster):
 @pn.depends(roster_button.param.value)
 @pn.cache(max_items=10, policy="LRU")
 def get_pop_neighborhood_count(roster):
-    """Callback function to generate a choropleth map of total population for a given roster year."""
+    """Callback function to generate a choropleth of total population for a given roster year."""
     # Load and filter population data
     df = pd.read_csv(PROCESSED_POP_DATA_PATH)
     df = df.query(f"roster=={roster}")
@@ -527,7 +539,7 @@ def get_pop_neighborhood_count(roster):
 @pn.depends(roster_button.param.value)
 @pn.cache(max_items=10, policy="LRU")
 def get_pop_density(roster):
-    """Callback function to generate a choropleth map of population density for a given roster year."""
+    """Callback function to generate a choropleth of population density for a given roster year."""
     # Load and filter population data
     df = pd.read_csv(PROCESSED_POP_DATA_PATH)
     df = df.query(f"roster=={roster}")
@@ -568,9 +580,13 @@ def get_income_polygon(roster, quantile):
     map_gdf = gpd.read_file(NEIGHBORHOOD_GDF_PATH).set_index("neighborhood")
     # Merge income and geospatial dataframes
 
-    income_gdf = map_gdf.merge(df, left_index=True, right_index=True, how="left")
+    income_gdf = map_gdf.merge(df,
+                               left_index=True,
+                               right_index=True,
+                               how="left")
 
-    income_cmap = list(sns.color_palette("light:" + "#388E3C", n_colors=5).as_hex())
+    income_cmap = list(
+        sns.color_palette("light:" + "#388E3C", n_colors=5).as_hex())
     quantile_title = quantile.replace("_", " ").title()
     return gv.Polygons(income_gdf).opts(
         **poly_opts,
@@ -595,16 +611,16 @@ def train_and_predict_arima(data, end_year, n_periods=1):
         error_action="ignore",
         suppress_warnings=True,
     )
-    return pd.DataFrame(model.predict(n_periods=n_periods), columns=[data.name])
+    return pd.DataFrame(model.predict(n_periods=n_periods),
+                        columns=[data.name])
 
-
+@memory.cache
 def forecast_arima(data, end_year, n_periods=1, model_desc="Model"):
     """Takes in a DataFrame and returns a DataFrame with n forecast for each column."""
     forecasts = []
     for col in tqdm(data.columns, desc=f"Training {model_desc} {end_year}"):
         forecasts.append(
-            train_and_predict_arima(data[col], end_year, n_periods=n_periods)
-        )
+            train_and_predict_arima(data[col], end_year, n_periods=n_periods))
 
     return pd.concat(forecasts, axis=1)
 
@@ -626,12 +642,9 @@ def compute_embeddings(df, n_neighbors_values, min_dist_values):
         embeddings_dict = dict(
             executor.map(
                 _embeddings,
-                [
-                    (df, n, d)
-                    for n, d in it.product(n_neighbors_values, min_dist_values)
-                ],
-            )
-        )
+                [(df, n, d)
+                 for n, d in it.product(n_neighbors_values, min_dist_values)],
+            ))
 
     return embeddings_dict
 
@@ -663,7 +676,10 @@ def add_columns(data_df, other_df, columns):
     return data
 
 
-def create_scatterplot_with_origin_cross(data, x="x", y="y", title="Scatter Title"):
+def create_scatterplot_with_origin_cross(data,
+                                         x="x",
+                                         y="y",
+                                         title="Scatter Title"):
     """Create a scatter plot from the embeddings DataFrame."""
     plot = data.hvplot.scatter(
         x=x,
@@ -684,7 +700,7 @@ def create_scatterplot_with_origin_cross(data, x="x", y="y", title="Scatter Titl
 
 
 def calculate_clusters_scores(embeddings_dict, cluster_range=None):
-    """Calculate K-means clustering scores for all embeddings in the dictionary and return a DataFrame."""
+    """Calculate Kmeans clustering scores for all embeddings in the dict and return a DataFrame."""
     # Create a list to store the dataframes
     score_dataframes = []
     if cluster_range is None:
@@ -693,31 +709,25 @@ def calculate_clusters_scores(embeddings_dict, cluster_range=None):
 
     for embedding_key, embeddings in embeddings_dict.items():
         for num_clusters in cluster_range:
-            kmeans_model = KMeans(n_clusters=num_clusters, random_state=628).fit(
-                embeddings
-            )
+            kmeans_model = KMeans(n_clusters=num_clusters,
+                                  random_state=628).fit(embeddings)
             cluster_labels = kmeans_model.labels_
 
             silhouette_score = round(
-                metrics.silhouette_score(embeddings, cluster_labels), 3
-            )
+                metrics.silhouette_score(embeddings, cluster_labels), 3)
             calinski_harabasz_score = round(
-                metrics.calinski_harabasz_score(embeddings, cluster_labels),
-            )
+                metrics.calinski_harabasz_score(embeddings, cluster_labels), )
             davies_bouldin_score = round(
-                metrics.davies_bouldin_score(embeddings, cluster_labels), 3
-            )
+                metrics.davies_bouldin_score(embeddings, cluster_labels), 3)
 
             # Create a DataFrame
-            scores_df = pd.DataFrame(
-                {
-                    "embedding_key": [embedding_key],
-                    "num_clusters": [num_clusters],
-                    "silhouette_score": [silhouette_score],
-                    "calinski_harabasz_score": [calinski_harabasz_score],
-                    "davies_bouldin_score": [davies_bouldin_score],
-                }
-            )
+            scores_df = pd.DataFrame({
+                "embedding_key": [embedding_key],
+                "num_clusters": [num_clusters],
+                "silhouette_score": [silhouette_score],
+                "calinski_harabasz_score": [calinski_harabasz_score],
+                "davies_bouldin_score": [davies_bouldin_score],
+            })
 
             # Append the dataframe to the list
             score_dataframes.append(scores_df)
