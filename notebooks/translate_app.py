@@ -21,7 +21,7 @@ def translate_list(
     """Translates a list, or another interable, of strings using Cloud Translation API.
     Returns a TranslateTextResponse object."""
     client = translate.TranslationServiceClient()
-    location = "global"
+    location = "us-central1"
     parent = f"projects/{project_id}/locations/{location}"
     response = client.translate_text(
         request={
