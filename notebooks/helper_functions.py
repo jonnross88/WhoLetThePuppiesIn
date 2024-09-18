@@ -651,7 +651,7 @@ def compute_embeddings(df, n_neighbors_values, min_dist_values):
 
 def compute_kmeans_labels(data, n_clusters):
     """Compute K-means cluster labels for the given data."""
-    kmeans = KMeans(n_clusters=n_clusters, random_state=628).fit(data)
+    kmeans = KMeans(n_init=20, n_clusters=n_clusters, random_state=628).fit(data)
     return kmeans.labels_
 
 
@@ -709,7 +709,7 @@ def calculate_clusters_scores(embeddings_dict, cluster_range=None):
 
     for embedding_key, embeddings in embeddings_dict.items():
         for num_clusters in cluster_range:
-            kmeans_model = KMeans(n_clusters=num_clusters,
+            kmeans_model = KMeans(n_init=20, n_clusters=num_clusters,
                                   random_state=628).fit(embeddings)
             cluster_labels = kmeans_model.labels_
 
