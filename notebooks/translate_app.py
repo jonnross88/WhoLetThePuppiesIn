@@ -12,7 +12,7 @@ memory = Memory(cache_dir, verbose=0)
 
 
 @memory.cache
-def translate_list(
+def translate_list_to_dict(
     list_of_strings: Iterable[str],
     project_id: str = "mrprime-349614",
     source_lang: str = "de",
@@ -32,38 +32,42 @@ def translate_list(
             "target_language_code": target_lang,
         }
     )
-    return response
-
-
-def translation_response_to_dict(
-    list_of_strings: Iterable[str], response: translate.TranslateTextResponse
-) -> dict:
-    """Converts a TranslateTextResponse object to a dictionary
-    with the original text as key and the translated text as value."""
-    trans_dict = {}
     trans_dict = {
         text: translation.translated_text
         for (text, translation) in zip(list_of_strings, response.translations)
     }
-    # print(trans_dict)
     return trans_dict
 
 
-def translate_list_to_dict(
-    list_of_strings: Iterable[str],
-    project_id: str = "mrprime-349614",
-    source_lang: str = "de",
-    target_lang: str = "en-US",
-) -> dict[str, str]:
-    """Translates a list of strings to a dictionary with the original text as key and the translated text as value."""
-    response = translate_list(
-        list_of_strings,
-        project_id=project_id,
-        source_lang=source_lang,
-        target_lang=target_lang,
-    )
-    # print(response)
-    return translation_response_to_dict(list_of_strings, response)
+# def translation_response_to_dict(
+#     list_of_strings: Iterable[str], response: translate.TranslateTextResponse
+# ) -> dict:
+#     """Converts a TranslateTextResponse object to a dictionary
+#     with the original text as key and the translated text as value."""
+#     trans_dict = {}
+#     trans_dict = {
+#         text: translation.translated_text
+#         for (text, translation) in zip(list_of_strings, response.translations)
+#     }
+#     # print(trans_dict)
+#     return trans_dict
+
+
+# def translate_list_to_dict(
+#     list_of_strings: Iterable[str],
+#     project_id: str = "mrprime-349614",
+#     source_lang: str = "de",
+#     target_lang: str = "en-US",
+# ) -> dict[str, str]:
+#     """Translates a list of strings to a dictionary with the original text as key and the translated text as value."""
+#     response = translate_list(
+#         list_of_strings,
+#         project_id=project_id,
+#         source_lang=source_lang,
+#         target_lang=target_lang,
+#     )
+#     # print(response)
+#     return translation_response_to_dict(list_of_strings, response)
 
 
 # translate_text('Afghanischer Windhund', 'mrprimetranslator')
