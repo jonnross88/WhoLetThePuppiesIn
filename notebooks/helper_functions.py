@@ -42,7 +42,7 @@ import panel.widgets as pnw
 import seaborn as sns
 import umap
 
-from translate_app import translate_list_to_dict
+# from translate_app import translate_list_to_dict
 
 pn.extension()
 hv.extension("bokeh")
@@ -188,16 +188,16 @@ def convert_to_snake_case(item):
     return s4
 
 
-def sanitize_df_column_names(df):
-    """Function to danitize column names by translating and conveting to snake case"""
-    column_list = df.columns.tolist()
-    # translate the column names
-    translated_dict = translate_list_to_dict(column_list)
-    # map the translated column names to the column names
-    df.rename(columns=translated_dict, inplace=True)
-    # convert the column names to snake case
-    df.columns = [convert_to_snake_case(col) for col in df.columns]
-    return df
+# def sanitize_df_column_names(df):
+#     """Function to danitize column names by translating and conveting to snake case"""
+#     column_list = df.columns.tolist()
+#     # translate the column names
+#     translated_dict = translate_list_to_dict(column_list)
+#     # map the translated column names to the column names
+#     df.rename(columns=translated_dict, inplace=True)
+#     # convert the column names to snake case
+#     df.columns = [convert_to_snake_case(col) for col in df.columns]
+#     return df
 
 
 def get_gdf_from_zip_url(zip_url: str) -> dict[str, gpd.GeoDataFrame]:
