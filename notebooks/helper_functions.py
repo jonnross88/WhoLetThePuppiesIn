@@ -383,8 +383,8 @@ def get_line_plots(data, x, group_by, highlight_list=None, **kwargs):
     return combined_plot
 
 
-@pn.depends(yearly_player.param.value)
 @pn.cache(max_items=10, policy="LRU")
+@pn.depends(yearly_player.param.value)
 def get_dog_age_butterfly_plot(roster):
     """
     Decorated with @pn.depends, this function generates a butterfly plot of male
@@ -410,7 +410,7 @@ def get_dog_age_butterfly_plot(roster):
     # Filter the DataFrame for the roster
     filtered_dog_data = pd.read_csv(PROCESSED_DOG_DATA_PATH)
     # filtered_dog_data = pd.read_csv("../data/processed_dog_data.csv")
-    roster_dog_data = filtered_dog_data.query(f"roster=={roster}")
+    roster_dog_data = filtered_dog_data.query(f"reporting_year=={roster}")
     # Filter for the is_male_dog
     male_roster_dog_data = roster_dog_data.loc[roster_dog_data["is_male_dog"]]
     male_roster_dog_data = (male_roster_dog_data.groupby(
